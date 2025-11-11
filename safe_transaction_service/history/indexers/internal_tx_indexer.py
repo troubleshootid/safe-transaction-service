@@ -611,6 +611,17 @@ class XoneInternalTxIndexer(InternalTxIndexer):
 
                                                 # Ensure EthereumBlock exists
                                                 from ..models import EthereumBlock
+
+                                                # Get block timestamp from RPC
+                                                block_timestamp = datetime.now(timezone.utc)  # fallback
+                                                try:
+                                                    block_data = self.ethereum_client.w3.eth.get_block(block_number)
+                                                    if block_data and 'timestamp' in block_data:
+                                                        block_timestamp = datetime.fromtimestamp(block_data['timestamp'], tz=timezone.utc)
+                                                        logger.debug(f"Got block timestamp from RPC for block {block_number}: {block_timestamp}")
+                                                except Exception as e:
+                                                    logger.warning(f"Failed to get block timestamp from RPC for block {block_number}: {e}, using current time")
+
                                                 # Use block_number as placeholder hash (32 bytes)
                                                 placeholder_hash = block_number.to_bytes(32, byteorder='big')
                                                 # Use block_number - 1 as placeholder parent_hash
@@ -620,7 +631,7 @@ class XoneInternalTxIndexer(InternalTxIndexer):
                                                     defaults={
                                                         "gas_limit": 0,
                                                         "gas_used": 0,
-                                                        "timestamp": datetime.now(timezone.utc),
+                                                        "timestamp": block_timestamp,
                                                         "block_hash": placeholder_hash,
                                                         "parent_hash": placeholder_parent,
                                                     }
@@ -791,6 +802,22 @@ class XoneInternalTxIndexer(InternalTxIndexer):
                         from_addr = bytes.fromhex(item["from"]["hash"][2:])
                         to_addr = bytes.fromhex(item.get("to", {}).get("hash", "0x")[2:]) if item.get("to") else None
 
+                        # Parse timestamp from Explorer API for block
+                        timestamp_str = item.get("timestamp")
+                        if timestamp_str:
+                            from dateutil import parser as dateutil_parser
+                            block_timestamp = dateutil_parser.parse(timestamp_str)
+                        else:
+                            # Fallback: get from RPC or use current time
+                            try:
+                                block_data = self.ethereum_client.w3.eth.get_block(block_number)
+                                if block_data and 'timestamp' in block_data:
+                                    block_timestamp = datetime.fromtimestamp(block_data['timestamp'], tz=timezone.utc)
+                                else:
+                                    block_timestamp = datetime.now(timezone.utc)
+                            except Exception:
+                                block_timestamp = datetime.now(timezone.utc)
+
                         # Ensure EthereumBlock exists first
                         # Use block_number as placeholder hash (32 bytes)
                         placeholder_hash = block_number.to_bytes(32, byteorder='big')
@@ -801,7 +828,7 @@ class XoneInternalTxIndexer(InternalTxIndexer):
                             defaults={
                                 "gas_limit": 0,
                                 "gas_used": 0,
-                                "timestamp": datetime.now(timezone.utc),
+                                "timestamp": block_timestamp,
                                 "block_hash": placeholder_hash,
                                 "parent_hash": placeholder_parent,
                             }
@@ -909,6 +936,22 @@ class XoneInternalTxIndexer(InternalTxIndexer):
                         from_addr = bytes.fromhex(item["from"]["hash"][2:])
                         to_addr = bytes.fromhex(item.get("to", {}).get("hash", "0x")[2:]) if item.get("to") else None
 
+                        # Parse timestamp from Explorer API for block
+                        timestamp_str = item.get("timestamp")
+                        if timestamp_str:
+                            from dateutil import parser as dateutil_parser
+                            block_timestamp = dateutil_parser.parse(timestamp_str)
+                        else:
+                            # Fallback: get from RPC or use current time
+                            try:
+                                block_data = self.ethereum_client.w3.eth.get_block(block_number)
+                                if block_data and 'timestamp' in block_data:
+                                    block_timestamp = datetime.fromtimestamp(block_data['timestamp'], tz=timezone.utc)
+                                else:
+                                    block_timestamp = datetime.now(timezone.utc)
+                            except Exception:
+                                block_timestamp = datetime.now(timezone.utc)
+
                         # Ensure EthereumBlock exists first
                         # Use block_number as placeholder hash (32 bytes)
                         placeholder_hash = block_number.to_bytes(32, byteorder='big')
@@ -919,7 +962,7 @@ class XoneInternalTxIndexer(InternalTxIndexer):
                             defaults={
                                 "gas_limit": 0,
                                 "gas_used": 0,
-                                "timestamp": datetime.now(timezone.utc),
+                                "timestamp": block_timestamp,
                                 "block_hash": placeholder_hash,
                                 "parent_hash": placeholder_parent,
                             }
