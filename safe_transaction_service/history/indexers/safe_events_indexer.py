@@ -717,6 +717,7 @@ class XoneSafeEventsIndexer(SafeEventsIndexer):
     - Starts from earliest Safe creation block
     - Processes 5000 blocks at a time (configurable via ETH_EVENTS_BLOCK_PROCESS_LIMIT)
     - Continues from last indexed position on restart
+    - Automatically indexes all Safe addresses from database
     """
 
     def __init__(self, *args, **kwargs):
@@ -727,6 +728,38 @@ class XoneSafeEventsIndexer(SafeEventsIndexer):
             "XoneSafeEventsIndexer initialized with block_process_limit=%d",
             self.block_process_limit
         )
+
+    def get_almost_updated_addresses(
+        self, current_block_number: int
+    ) -> set[ChecksumAddress]:
+        """
+        Get all Safe addresses from database for event indexing.
+
+        Unlike the base class which filters by update status, we return ALL
+        Safe addresses because we want to index events for all Safes, regardless
+        of when they were last updated.
+
+        :param current_block_number: Current block number (not used, kept for interface compatibility)
+        :return: Set of all Safe addresses
+        """
+        logger.debug(
+            "%s: Retrieving all Safe addresses for event indexing",
+            self.__class__.__name__
+        )
+
+        # Get all Safe addresses from database
+        all_safe_addresses = set(
+            SafeContract.objects.values_list('address', flat=True)
+        )
+
+        num_addresses = len(all_safe_addresses)
+        logger.info(
+            "%s: Retrieved %d Safe addresses for event indexing",
+            self.__class__.__name__,
+            num_addresses
+        )
+
+        return all_safe_addresses
 
     def get_from_block_number(
         self, addresses: set[ChecksumAddress] | None = None
