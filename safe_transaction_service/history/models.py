@@ -129,6 +129,7 @@ class InternalTxType(Enum):
 
 class IndexingStatusType(Enum):
     ERC20_721_EVENTS = 0
+    SAFE_EVENTS = 1  # For Safe contract events indexing
 
 
 class TransferDict(TypedDict):
@@ -200,6 +201,29 @@ class IndexingStatusManager(models.Manager):
         :return:
         """
         queryset = self.filter(indexing_type=IndexingStatusType.ERC20_721_EVENTS.value)
+        if from_block_number is not None:
+            queryset = queryset.filter(block_number__gte=from_block_number)
+        return bool(queryset.update(block_number=block_number))
+
+    def get_safe_events_indexing_status(self) -> "IndexingStatus":
+        """Get indexing status for Safe Events"""
+        return self.get_or_create(
+            indexing_type=IndexingStatusType.SAFE_EVENTS.value,
+            defaults={"block_number": 0}
+        )[0]
+
+    def set_safe_events_indexing_status(
+        self, block_number: int, from_block_number: int | None = None
+    ) -> bool:
+        """
+        Set indexing status for Safe Events
+
+        :param block_number:
+        :param from_block_number: If provided, only update the field if bigger than `from_block_number`, to protect
+                                  from reorgs
+        :return:
+        """
+        queryset = self.filter(indexing_type=IndexingStatusType.SAFE_EVENTS.value)
         if from_block_number is not None:
             queryset = queryset.filter(block_number__gte=from_block_number)
         return bool(queryset.update(block_number=block_number))

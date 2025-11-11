@@ -1,4 +1,5 @@
 import datetime
+import os
 from functools import cached_property
 from logging import getLogger
 from typing import Any
@@ -25,9 +26,11 @@ from web3.types import EventData
 from ..models import (
     EthereumBlock,
     EthereumTxCallType,
+    IndexingStatus,
     InternalTx,
     InternalTxDecoded,
     InternalTxType,
+    SafeContract,
     SafeMasterCopy,
     SafeRelevantTransaction,
 )
@@ -44,6 +47,12 @@ class SafeEventsIndexerProvider:
 
     @classmethod
     def get_new_instance(cls) -> "SafeEventsIndexer":
+        # Detect Xone Network (Chain ID 3721) and use optimized indexer
+        chain_id = os.environ.get('ETHEREUM_CHAIN_ID')
+        if chain_id and (chain_id == '3721' or int(chain_id) == 3721):
+            logger.info("Using XoneSafeEventsIndexer for Xone Network (Chain ID: 3721)")
+            return XoneSafeEventsIndexer(EthereumClient(settings.ETHEREUM_NODE_URL))
+
         return SafeEventsIndexer(EthereumClient(settings.ETHEREUM_NODE_URL))
 
     @classmethod
@@ -697,3 +706,119 @@ class SafeEventsIndexer(EventsIndexer):
 
         processed_elements.extend(stored_internal_txs)
         return processed_elements
+
+
+class XoneSafeEventsIndexer(SafeEventsIndexer):
+    """
+    Optimized Safe Events Indexer for Xone Network (Chain ID: 3721)
+
+    Key optimizations:
+    - Uses IndexingStatus for global progress tracking
+    - Starts from earliest Safe creation block
+    - Processes 5000 blocks at a time (configurable via ETH_EVENTS_BLOCK_PROCESS_LIMIT)
+    - Continues from last indexed position on restart
+    """
+
+    def __init__(self, *args, **kwargs):
+        # Set default block processing limit to 5000 for Xone Network
+        kwargs.setdefault('block_process_limit', 5000)
+        super().__init__(*args, **kwargs)
+        logger.info(
+            "XoneSafeEventsIndexer initialized with block_process_limit=%d",
+            self.block_process_limit
+        )
+
+    def get_from_block_number(
+        self, addresses: set[ChecksumAddress] | None = None
+    ) -> int | None:
+        """
+        Get starting block number for Safe Events indexing.
+
+        Strategy:
+        1. Get last indexed block from IndexingStatus (global progress)
+        2. Get minimum Safe creation block from SafeContract table
+        3. Return max(status_block, min_creation_block) to resume from last position
+
+        :param addresses: Not used, kept for interface compatibility
+        :return: Block number to start indexing from
+        """
+        logger.debug(
+            "%s: Getting from_block_number for Safe Events indexing",
+            self.__class__.__name__
+        )
+
+        # Get last indexed block from IndexingStatus
+        indexing_status = IndexingStatus.objects.get_safe_events_indexing_status()
+        status_block = indexing_status.block_number
+
+        # Get minimum Safe creation block
+        all_safe_addresses = list(SafeContract.objects.values_list('address', flat=True))
+        if not all_safe_addresses:
+            logger.warning("No Safe contracts found in database, starting from status block %d", status_block)
+            return status_block or 0
+
+        min_creation_block = SafeContract.objects.get_minimum_creation_block_number(all_safe_addresses)
+
+        logger.debug(
+            "%s: status_block=%s, min_creation_block=%s",
+            self.__class__.__name__,
+            status_block,
+            min_creation_block
+        )
+
+        # Return max to resume from last indexed position
+        # If status_block > min_creation_block, continue from where we left off
+        # If status_block == 0 (first run), start from min_creation_block
+        from_block = max(min_creation_block or 0, status_block or 0)
+
+        logger.info(
+            "%s: Starting Safe Events indexing from block %d",
+            self.__class__.__name__,
+            from_block
+        )
+
+        return from_block
+
+    def update_monitored_addresses(
+        self,
+        addresses: set[ChecksumAddress],
+        from_block_number: int,
+        to_block_number: int,
+    ) -> bool:
+        """
+        Update IndexingStatus with the next block to be processed.
+
+        :param addresses: Not used, kept for interface compatibility
+        :param from_block_number: Starting block of current batch
+        :param to_block_number: Ending block of current batch
+        :return: True if update successful, False if reorg detected
+        """
+        # Keep indexing going on the next block
+        new_to_block_number = to_block_number + 1
+
+        logger.debug(
+            "%s: Updating Safe Events indexing status from %d to %d",
+            self.__class__.__name__,
+            from_block_number,
+            new_to_block_number
+        )
+
+        updated = IndexingStatus.objects.set_safe_events_indexing_status(
+            new_to_block_number, from_block_number=from_block_number
+        )
+
+        if not updated:
+            logger.warning(
+                "%s: Possible reorg - Cannot update Safe Events indexing status from-block=%d to-block=%d",
+                self.__class__.__name__,
+                from_block_number,
+                to_block_number,
+            )
+        else:
+            logger.info(
+                "%s: Updated Safe Events indexing status to block %d",
+                self.__class__.__name__,
+                new_to_block_number
+            )
+
+        return updated
