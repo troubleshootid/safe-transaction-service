@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import datetime
 
+from django.db.models import Q
 from eth_typing import ChecksumAddress
 from eth_utils import event_abi_to_log_topic
 from hexbytes import HexBytes
@@ -111,15 +112,21 @@ class SafeService:
         """
         try:
             # Get first the actual creation transaction for the safe
+            # For L2s using Explorer API, tx_type might be CALL instead of CREATE
             creation_internal_tx = (
                 InternalTx.objects.filter(
                     ethereum_tx__status=1,  # Ignore Internal Transactions for failed Transactions
-                    tx_type=InternalTxType.CREATE.value,
                     contract_address=safe_address,
                 )
+                .filter(
+                    Q(tx_type=InternalTxType.CREATE.value) | Q(tx_type=InternalTxType.CALL.value)
+                )
                 .select_related("ethereum_tx__block")
-                .get()
+                .order_by('id')  # Get the earliest one
+                .first()
             )
+            if not creation_internal_tx:
+                raise InternalTx.DoesNotExist
             creation_ethereum_tx = creation_internal_tx.ethereum_tx
 
             created_time = creation_ethereum_tx.block.timestamp
@@ -128,8 +135,10 @@ class SafeService:
             # For L2s, `ProxyCreation` event is used to emulate the trace
             parent_internal_tx = self._get_parent_internal_tx(creation_internal_tx)
 
-            creator = (parent_internal_tx or creation_ethereum_tx)._from
-            proxy_factory = creation_internal_tx._from
+            # For L2s without parent trace, use creation_internal_tx._from instead of creation_ethereum_tx._from
+            creator = (parent_internal_tx or creation_internal_tx)._from
+            # Use ethereum_tx.to for factory address (the contract that was called to create the Safe)
+            proxy_factory = creation_ethereum_tx.to or creation_internal_tx._from
 
             singleton: str | None = None
             initializer: bytes | None = None
@@ -211,16 +220,12 @@ class SafeService:
             safe = Safe(safe_address, self.ethereum_client)
             safe_info = safe.retrieve_all_info()
             # Return same master copy information than the db method
-            db_version = SafeMasterCopy.objects.get_version_for_address(
-                safe_info.master_copy
+            return replace(
+                safe_info,
+                version=SafeMasterCopy.objects.get_version_for_address(
+                    safe_info.master_copy
+                ),
             )
-            if db_version:
-                return replace(
-                    safe_info,
-                    version=db_version,
-                )
-            else:
-                return safe_info
         except OSError as exc:
             raise NodeConnectionException from exc
         except CannotRetrieveSafeInfoException as exc:

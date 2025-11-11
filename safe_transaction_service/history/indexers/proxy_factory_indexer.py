@@ -30,6 +30,14 @@ class ProxyFactoryIndexerProvider:
     def get_new_instance(cls) -> "ProxyFactoryIndexer":
         from django.conf import settings
 
+        # Use XoneInternalTxIndexer for Xone Network (Chain ID 3721)
+        import os
+        chain_id = os.environ.get('ETHEREUM_CHAIN_ID')
+        if chain_id and (chain_id == '3721' or int(chain_id) == 3721):
+            from .internal_tx_indexer import XoneInternalTxIndexer
+            logger.info("Using XoneInternalTxIndexer for Xone Network (Chain ID: 3721)")
+            return XoneInternalTxIndexer(EthereumClient(settings.ETHEREUM_NODE_URL))
+
         return ProxyFactoryIndexer(EthereumClient(settings.ETHEREUM_NODE_URL))
 
     @classmethod

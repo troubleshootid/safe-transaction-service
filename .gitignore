@@ -125,3 +125,5 @@ safe_transaction_service/media
 # User-specific stuff:
 .idea/
 .vscode/
+.DS_Store
+**/.DS_Store

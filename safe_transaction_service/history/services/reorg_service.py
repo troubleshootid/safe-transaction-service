@@ -123,9 +123,27 @@ class ReorgService:
                     )
                     continue
 
-                if HexBytes(blockchain_block["hash"]) == HexBytes(
-                    database_block.block_hash
-                ):
+                # Skip reorg detection for blocks with invalid/placeholder hashes (0x0000...)
+                # This happens for L2s using Explorer API where block hashes may not be available
+                database_block_hash = HexBytes(database_block.block_hash)
+                # Check if hash starts with at least 50 zeros (placeholder from Explorer API)
+                # HexBytes.hex() may or may not include 0x prefix, so check both formats
+                hash_hex = database_block_hash.hex()
+                logger.debug(f"Checking hash for block {database_block.number}: {hash_hex}")
+                if hash_hex.startswith('0x00000000000000000000000000000000000000000000000000') or \
+                   hash_hex.startswith('00000000000000000000000000000000000000000000000000'):
+                    logger.debug(
+                        "Block with number=%d has placeholder hash, skipping reorg check and updating to real hash",
+                        database_block.number,
+                    )
+                    # Update the block with the real hash from blockchain
+                    database_block.block_hash = blockchain_block["hash"]
+                    database_block.save(update_fields=['block_hash'])
+                    if database_block.number <= confirmation_block:
+                        database_block.set_confirmed()
+                    continue
+
+                if HexBytes(blockchain_block["hash"]) == database_block_hash:
                     # Check all the blocks but only mark safe ones as confirmed
                     if database_block.number <= confirmation_block:
                         logger.debug(
@@ -138,7 +156,7 @@ class ReorgService:
                     logger.warning(
                         "Block with number=%d and hash=%s is not matching blockchain hash=%s, reorg found",
                         database_block.number,
-                        to_0x_hex_str(HexBytes(database_block.block_hash)),
+                        to_0x_hex_str(database_block_hash),
                         to_0x_hex_str(HexBytes(blockchain_block["hash"])),
                     )
                     return database_block.number
