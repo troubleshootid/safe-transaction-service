@@ -3,7 +3,7 @@ set -e
 
 # Wait for database
 echo "Waiting for database..."
-while ! nc -z postgres 5432; do
+while ! nc -z ${POSTGRES_HOST:-postgres} ${POSTGRES_PORT:-5432}; do
   sleep 1
 done
 
