@@ -796,6 +796,23 @@ class XoneInternalTxIndexer(InternalTxIndexer):
                     if InternalTx.objects.filter(ethereum_tx_id=tx_hash).exists():
                         continue
 
+                    # Skip if transaction has SafeReceived event (will be handled by SafeEventsIndexer)
+                    # SafeReceived event signature: 0x3d0ce9bfc3ed7d6862dbb28b2dea94561fe714a1b4d019aa8af39730d1ad7c3d
+                    try:
+                        receipt = self.ethereum_client.get_transaction_receipt(tx_hash.hex())
+                        if receipt and receipt.get("logs"):
+                            has_safe_received = any(
+                                log.get("topics") and
+                                len(log["topics"]) > 0 and
+                                log["topics"][0].hex() == "3d0ce9bfc3ed7d6862dbb28b2dea94561fe714a1b4d019aa8af39730d1ad7c3d"
+                                for log in receipt["logs"]
+                            )
+                            if has_safe_received:
+                                logger.debug(f"Skipping tx {tx_hash.hex()} - has SafeReceived event (handled by SafeEventsIndexer)")
+                                continue
+                    except Exception as e:
+                        logger.debug(f"Could not check SafeReceived event for tx {tx_hash.hex()}: {e}")
+
                     # Create records
                     with transaction.atomic():
                         block_number = item.get("block_number", 0)
