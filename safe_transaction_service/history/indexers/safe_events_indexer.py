@@ -836,9 +836,27 @@ class XoneSafeEventsIndexer(SafeEventsIndexer):
             new_to_block_number
         )
 
-        updated = IndexingStatus.objects.set_safe_events_indexing_status(
-            new_to_block_number, from_block_number=from_block_number
-        )
+        # Get current status to check if this is initial setup
+        current_status = IndexingStatus.objects.filter(
+            indexing_type=IndexingStatusType.SAFE_EVENTS.value
+        ).first()
+
+        # If current block_number is 0 (initial state) and we're starting from a later block,
+        # allow the update without reorg check (this happens when starting indexing from
+        # the earliest Safe creation block)
+        if current_status and current_status.block_number == 0:
+            logger.info(
+                "%s: Initial setup - Updating from block 0 to %d (skipping reorg check)",
+                self.__class__.__name__,
+                new_to_block_number
+            )
+            updated = IndexingStatus.objects.set_safe_events_indexing_status(
+                new_to_block_number, from_block_number=None
+            )
+        else:
+            updated = IndexingStatus.objects.set_safe_events_indexing_status(
+                new_to_block_number, from_block_number=from_block_number
+            )
 
         if not updated:
             logger.warning(
