@@ -27,6 +27,7 @@ from ..models import (
     EthereumBlock,
     EthereumTxCallType,
     IndexingStatus,
+    IndexingStatusType,
     InternalTx,
     InternalTxDecoded,
     InternalTxType,
@@ -724,9 +725,15 @@ class XoneSafeEventsIndexer(SafeEventsIndexer):
         # Set default block processing limit to 5000 for Xone Network
         kwargs.setdefault('block_process_limit', 5000)
         super().__init__(*args, **kwargs)
+
+        # Set maximum block process limit to 5000 for Xone Network RPC
+        # This prevents exceeding Xone's RPC block range limits
+        self.block_process_limit_max = 5000
+
         logger.info(
-            "XoneSafeEventsIndexer initialized with block_process_limit=%d",
-            self.block_process_limit
+            "XoneSafeEventsIndexer initialized with block_process_limit=%d, max=%d",
+            self.block_process_limit,
+            self.block_process_limit_max
         )
 
     def get_almost_updated_addresses(
